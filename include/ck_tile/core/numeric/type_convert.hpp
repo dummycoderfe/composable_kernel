@@ -29,7 +29,7 @@ CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 {
     static_assert(!std::is_reference_v<Y> && !std::is_reference_v<X>);
     if(std::is_same<Y, bfloat16_t>::value && std::is_same<X, float>::value) {
-        return float_to_bf16<int_to_bf16_rounding_mode(round_mode)>(x);
+        return float_to_bf16<static_cast<bf16_rounding_mode>(round_mode)>(x);
     } else {
         return static_cast<Y>(x);
     }

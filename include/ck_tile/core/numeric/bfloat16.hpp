@@ -20,21 +20,6 @@ enum class bf16_rounding_mode
     standard_asm,
 };
 
-constexpr bf16_rounding_mode int_to_bf16_rounding_mode(int mode) {
-    switch (mode) {
-        case 0:
-            return bf16_rounding_mode::standard;
-        case 1:
-            return bf16_rounding_mode::truncate_with_nan;
-        case 2:
-            return bf16_rounding_mode::truncate;
-        case 3:
-            return bf16_rounding_mode::standard_asm;
-        default:
-            return bf16_rounding_mode::standard;
-    }
-}
-
 template <bf16_rounding_mode rounding =
               static_cast<bf16_rounding_mode>(CK_TILE_FLOAT_TO_BFLOAT16_DEFAULT)>
 CK_TILE_HOST_DEVICE constexpr uint16_t float_to_bf16_raw(float f, constant<rounding> = {});
