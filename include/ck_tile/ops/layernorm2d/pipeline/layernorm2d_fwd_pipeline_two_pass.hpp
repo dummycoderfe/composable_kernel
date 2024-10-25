@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ck_tile/core.hpp"
+#include "ck_tile/core/numeric/type_convert_rounding.hpp"
 #include "ck_tile/ops/layernorm2d/pipeline/layernorm2d_fwd_pipeline_default_policy.hpp"
 #include <string>
 #include <type_traits>
@@ -125,6 +126,7 @@ struct Layernorm2dFwdPipelineTwoPass
         move_tile_window(beta_window, {stride_to_right_most_window});
         move_tile_window(y_window, {0, stride_to_right_most_window});
 
+        type_convert_rounding<YDataType, ComputeDataType, 0> out_converter_;
         // layernorm computation
         for(int iN = __builtin_amdgcn_readfirstlane(0); iN < num_n_tile_iteration; ++iN)
         {
@@ -145,7 +147,7 @@ struct Layernorm2dFwdPipelineTwoPass
                 const auto x_ = type_convert<ComputeDataType>(x[idx]);
                 auto y_       = (x_ - mean_[i_idx]) * inv_std[i_idx] * gamma_ + beta_;
 
-                y(idx) = type_convert<YDataType>(y_);
+                y(idx) = out_converter_(y_);
             });
 
             store_tile(y_window, y);
