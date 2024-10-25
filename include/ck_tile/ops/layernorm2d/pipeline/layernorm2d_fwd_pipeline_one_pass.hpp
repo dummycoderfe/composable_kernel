@@ -101,7 +101,6 @@ struct Layernorm2dFwdPipelineOnePass
 
         // layernorm computation
         auto y = make_static_distributed_tensor<YDataType>(x.get_tile_distribution());
-
         sweep_tile(y, [&, mean_ = mean](auto idx) {
             constexpr auto i_idx = make_tuple(idx[number<0>{}]);
             constexpr auto j_idx = make_tuple(idx[number<1>{}]);
@@ -111,7 +110,8 @@ struct Layernorm2dFwdPipelineOnePass
 
             const auto x_ = type_convert<ComputeDataType>(x[idx]);
             auto y_       = (x_ - mean_[i_idx]) * inv_std[i_idx] * gamma_ + beta_;
-            y(idx) = type_convert<YDataType>(y_);
+
+            y(idx) = type_convert<YDataType, ComputeDataType, 3>(y_);
         });
         store_tile(y_window, y);
     }

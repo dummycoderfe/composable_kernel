@@ -144,7 +144,8 @@ struct Layernorm2dFwdPipelineTwoPass
 
                 const auto x_ = type_convert<ComputeDataType>(x[idx]);
                 auto y_       = (x_ - mean_[i_idx]) * inv_std[i_idx] * gamma_ + beta_;
-                y(idx) = type_convert<YDataType>(y_);
+
+                y(idx) = type_convert<YDataType, ComputeDataType, 3>(y_);
             });
 
             store_tile(y_window, y);

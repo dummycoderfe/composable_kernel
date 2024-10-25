@@ -23,7 +23,7 @@ CK_TILE_HOST_DEVICE constexpr remove_cvref_t<Y> type_convert(const X& x)
 // Convert X to Y, both X and Y are non-const data types.
 template <typename Y,
           typename X,
-          int round_mode = -1,
+          index_t round_mode = -1,
           std::enable_if_t<!(std::is_const_v<Y> || std::is_const_v<X>), bool> = false>
 CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 {
@@ -38,7 +38,7 @@ CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 // Convert X to Y, either X or Y is a const data type.
 template <typename Y,
           typename X,
-          int round_mode = -1,
+          index_t round_mode = -1,
           std::enable_if_t<std::is_const_v<Y> || std::is_const_v<X>, bool> = false>
 CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 {
