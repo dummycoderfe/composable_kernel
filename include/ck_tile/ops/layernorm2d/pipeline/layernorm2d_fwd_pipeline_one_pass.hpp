@@ -4,7 +4,6 @@
 #pragma once
 
 #include "ck_tile/core.hpp"
-#include "ck_tile/core/numeric/type_convert_rounding.hpp"
 #include "ck_tile/ops/layernorm2d/pipeline/layernorm2d_fwd_pipeline_default_policy.hpp"
 #include <string>
 #include <type_traits>
@@ -102,7 +101,6 @@ struct Layernorm2dFwdPipelineOnePass
 
         // layernorm computation
         auto y = make_static_distributed_tensor<YDataType>(x.get_tile_distribution());
-        type_convert_rounding<YDataType, ComputeDataType, 0> out_converter_;
 
         sweep_tile(y, [&, mean_ = mean](auto idx) {
             constexpr auto i_idx = make_tuple(idx[number<0>{}]);
@@ -113,7 +111,7 @@ struct Layernorm2dFwdPipelineOnePass
 
             const auto x_ = type_convert<ComputeDataType>(x[idx]);
             auto y_       = (x_ - mean_[i_idx]) * inv_std[i_idx] * gamma_ + beta_;
-            y(idx) = out_converter_(y_);
+            y(idx) = type_convert<YDataType>(y_);
         });
         store_tile(y_window, y);
     }

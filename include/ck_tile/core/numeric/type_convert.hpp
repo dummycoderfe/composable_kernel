@@ -23,16 +23,22 @@ CK_TILE_HOST_DEVICE constexpr remove_cvref_t<Y> type_convert(const X& x)
 // Convert X to Y, both X and Y are non-const data types.
 template <typename Y,
           typename X,
+          int round_mode = -1,
           std::enable_if_t<!(std::is_const_v<Y> || std::is_const_v<X>), bool> = false>
 CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 {
     static_assert(!std::is_reference_v<Y> && !std::is_reference_v<X>);
-    return static_cast<Y>(x);
+    if(std::is_same<Y, bfloat16_t>::value && std::is_same<X, float>::value) {
+        return float_to_bf16<int_to_bf16_rounding_mode(round_mode)>(x);
+    } else {
+        return static_cast<Y>(x);
+    }
 }
 
 // Convert X to Y, either X or Y is a const data type.
 template <typename Y,
           typename X,
+          int round_mode = -1,
           std::enable_if_t<std::is_const_v<Y> || std::is_const_v<X>, bool> = false>
 CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 {
@@ -40,7 +46,7 @@ CK_TILE_HOST_DEVICE constexpr Y type_convert(X x)
 
     using non_const_y = std::remove_const_t<Y>;
     using non_const_x = std::remove_const_t<X>;
-    return static_cast<Y>(type_convert<non_const_y, non_const_x>(x));
+    return static_cast<Y>(type_convert<non_const_y, non_const_x, round_mode>(x));
 }
 
 #define CK_TILE_TYPE_CONVERT(dtype_, dname_, stype_, sname_)                    \
