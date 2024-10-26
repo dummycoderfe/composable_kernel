@@ -9,17 +9,15 @@
 namespace ck_tile {
 
 // host side args
-struct Layernorm2dFwdHostArgs
+struct Layernorm2dBwdGammaBetaHostArgs
 {
-    const void* p_x;
-    const void* p_gamma;
-    const void* p_beta;
+    const void* p_dY;
+    const void* p_mean;
+    const void* p_invStd;
 
-    void* p_y;
-    void* p_mean;
-    void* p_invStd;
-
-    float epsilon;
+    void* p_dGamma;
+    void* p_dBeta;
+    void* p_yMul;
 
     index_t m;
     index_t n;
@@ -28,7 +26,7 @@ struct Layernorm2dFwdHostArgs
 
 // TODO: Extract some type to wrapper class
 template <typename Pipeline_>
-struct Layernorm2dFwd
+struct Layernorm2dBwdGammaBeta
 {
     using Pipeline = remove_cvref_t<Pipeline_>;
     using Problem  = typename Pipeline::Problem;
@@ -41,52 +39,40 @@ struct Layernorm2dFwd
     using MeanDataType    = remove_cvref_t<typename Problem::MeanDataType>;
     using InvStdDataType  = remove_cvref_t<typename Problem::InvStdDataType>;
 
-    static constexpr bool kHasGamma       = !std::is_same_v<GammaDataType, null_type>;
-    static constexpr bool kHasBeta        = !std::is_same_v<BetaDataType, null_type>;
-    static constexpr bool kSaveMeanInvStd = Problem::kSaveMeanInvStd;
-    static constexpr bool kSaveMean       = Problem::kSaveMeanInvStd;
-    static constexpr bool kSaveInvStd     = Problem::kSaveMeanInvStd;
-
     static constexpr index_t Block_M = Problem::BlockShape::Block_M;
     static constexpr index_t Block_N = Problem::BlockShape::Block_N;
     static constexpr bool kPadM      = false; // always no need to pad along M
     static constexpr bool kPadN      = Problem::kPadN;
-    static constexpr bool kTwoPass   = Problem::kTwoPass;
 
     static constexpr index_t ThreadPerWarp_N = Problem::BlockShape::ThreadPerWarp_N;
-    static constexpr index_t Vector_N        = Problem::BlockShape::Vector_N;
-    static constexpr index_t Repeat_N        = Problem::BlockShape::Repeat_N;
 
     static constexpr auto I0 = number<0>{};
     static constexpr auto I1 = number<1>{};
 
     struct Kargs
     {
-        const void* p_x;
-        const void* p_gamma;
-        const void* p_beta;
+        const void* p_dY;
+        const void* p_mean;
+        const void* p_invStd;
 
-        void* p_y;
-        void* p_mean;
-        void* p_invStd;
-
-        float epsilon;
+        void* p_dGamma;
+        void* p_dBeta;
+        void* p_yMul;
 
         index_t m;
         index_t n;
         index_t stride; // row_stride
     };
-    using Hargs = Layernorm2dFwdHostArgs;
+    using Hargs = Layernorm2dBwdGammaBetaHostArgs;
 
     CK_TILE_HOST static constexpr Kargs MakeKargs(const Hargs& hargs)
     {
-        return Kargs{hargs.p_x,
-                     hargs.p_gamma,
-                     hargs.p_beta,
-                     hargs.p_y,
+        return Kargs{hargs.p_dY,
                      hargs.p_mean,
                      hargs.p_invStd,
-                     hargs.epsilon,
+                     hargs.p_dGamma,
+                     hargs.p_dBeta,
+                     hargs.p_yMul,
                      hargs.m,
                      hargs.n,
                      hargs.stride};
@@ -94,7 +80,7 @@ struct Layernorm2dFwd
 
     CK_TILE_HOST static constexpr auto GridSize(const Hargs& hargs)
     {
-        return dim3((hargs.n + Block_N - 1) / Block_N,(hargs.m + Block_M - 1) / Block_M);
+        return (hargs.m + Block_M - 1) / Block_M;
     }
 
     CK_TILE_HOST static constexpr auto BlockSize() { return Problem::BlockShape::BlockSize; }
@@ -124,7 +110,7 @@ struct Layernorm2dFwd
 
         #define _SS_  std::string
         #define _TS_  std::to_string
-        return _SS_("layernorm2d_bwd_gamma_beta_") + _SS_(t2s<XDataType>::name) + "_" + 
+        return _SS_("layernorm2d_fwd_") + _SS_(t2s<XDataType>::name) + "_" + 
              _TS_(S_::Block_M) + "x" + _TS_(S_::Block_N) + "_" + _TS_(S_::WarpPerBlock_M) + "x" + _TS_(S_::WarpPerBlock_N) + "_" +
              _TS_(S_::Warp_M) + "x" + _TS_(S_::Warp_N) + "_" + _TS_(S_::Vector_M) + "x" + _TS_(S_::Vector_N) + "_" +
              _SS_(Pipeline::name) + surfix;
@@ -137,13 +123,11 @@ struct Layernorm2dFwd
     {
         const auto iM = get_block_id() * Block_M;
 
-        const auto x_window = [&]() {
+        const auto dy_window = [&]() {
             const auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
-                static_cast<const XDataType*>(kargs.p_x),
+                static_cast<const YDataType*>(kargs.p_dY),
                 make_tuple(kargs.m, kargs.n),
-                make_tuple(kargs.stride, 1),
-                number<Vector_N>{},
-                number<1>{});
+                make_tuple(kargs.stride, 1));
 
             // NOTE: we don't do any pad in this kernel for loading, assume that inside kernel will
             // check the max count dynamically
@@ -153,13 +137,35 @@ struct Layernorm2dFwd
                 tmp2_, make_tuple(number<Block_M>{}, number<Block_N>{}), {iM, 0});
         }();
 
-        const auto gamma_window = [&]() {
+        const auto mean_window = [&]() {
             const auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
-                static_cast<const GammaDataType*>(kargs.p_gamma),
+                static_cast<const MeanDataType*>(kargs.p_mean),
+                make_tuple(kargs.m),
+                make_tuple(1));
+
+            const auto tmp2_ =
+                pad_tensor_view(tmp_, make_tuple(number<Block_M>{}), sequence<false>{});
+
+            return make_tile_window(tmp2_, make_tuple(number<Block_M>{}), {0});
+        }();
+
+        const auto invstd_window = [&]() {
+            const auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
+                static_cast<const MeanDataType*>(kargs.p_invStd),
+                make_tuple(kargs.m),
+                make_tuple(1));
+
+            const auto tmp2_ =
+                pad_tensor_view(tmp_, make_tuple(number<Block_M>{}), sequence<false>{});
+
+            return make_tile_window(tmp2_, make_tuple(number<Block_M>{}), {0});
+        }();
+
+        const auto dgamma_window = [&]() {
+            const auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
+                static_cast<const GammaDataType*>(kargs.p_dGamma),
                 make_tuple(kargs.n),
-                make_tuple(1),
-                number<Vector_N>{},
-                number<1>{});
+                make_tuple(1));
 
             const auto tmp2_ =
                 pad_tensor_view(tmp_, make_tuple(number<Block_N>{}), sequence<false>{});
@@ -167,80 +173,25 @@ struct Layernorm2dFwd
             return make_tile_window(tmp2_, make_tuple(number<Block_N>{}), {0});
         }();
 
-        const auto beta_window = [&]() {
+        const auto dbeta_window = [&]() {
             const auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
-                static_cast<const BetaDataType*>(kargs.p_beta),
+                static_cast<const BetaDataType*>(kargs.p_dBeta),
                 make_tuple(kargs.n),
-                make_tuple(1),
-                number<Vector_N>{},
-                number<1>{});
+                make_tuple(1));
 
             const auto tmp2_ =
                 pad_tensor_view(tmp_, make_tuple(number<Block_N>{}), sequence<false>{});
             return make_tile_window(tmp2_, make_tuple(number<Block_M>{}, number<Block_N>{}), {0});
         }();
 
-        auto y_window = [&]() {
-            auto tmp_ = make_naive_tensor_view<address_space_enum::global>(
-                static_cast<YDataType*>(kargs.p_y),
-                make_tuple(kargs.m, kargs.n),
-                make_tuple(kargs.stride, 1),
-                number<Vector_N>{},
-                number<1>{});
-
-            auto tmp2_ = pad_tensor_view(
-                tmp_, make_tuple(number<Block_M>{}, number<Block_N>{}), sequence<kPadM, kPadN>{});
-            return make_tile_window(
-                tmp2_, make_tuple(number<Block_M>{}, number<Block_N>{}), {iM, 0});
-        }();
-
-        auto mean_window = [&]() {
-            if constexpr(kSaveMean)
-            {
-                const auto mean_m = [&]() {
-                    const auto mean_dram_naive =
-                        make_naive_tensor_view_packed<address_space_enum::global>(
-                            static_cast<MeanDataType*>(kargs.p_mean),
-                            make_tuple(kargs.m),
-                            number<1>{});
-
-                    return pad_tensor_view(
-                        mean_dram_naive, make_tuple(number<Block_M>{}), sequence<kPadM>{});
-                }();
-                return make_tile_window(mean_m, make_tuple(number<Block_M>{}), {iM});
-            }
-            else
-                return make_null_tile_window(make_tuple(number<Block_M>{}));
-        }();
-
-        auto inv_std_window = [&]() {
-            if constexpr(kSaveInvStd)
-            {
-                const auto inv_std_m = [&]() {
-                    const auto inv_std_dram_naive =
-                        make_naive_tensor_view_packed<address_space_enum::global>(
-                            static_cast<InvStdDataType*>(kargs.p_invStd),
-                            make_tuple(kargs.m),
-                            number<1>{});
-
-                    return pad_tensor_view(
-                        inv_std_dram_naive, make_tuple(number<Block_M>{}), sequence<kPadM>{});
-                }();
-                return make_tile_window(inv_std_m, make_tuple(number<Block_M>{}), {iM});
-            }
-            else
-                return make_null_tile_window(make_tuple(number<Block_M>{}));
-        }();
 
         __shared__ char smem[GetSmemSize()];
 
-        Pipeline{}(x_window,
-                   gamma_window,
-                   beta_window,
-                   y_window,
+        Pipeline{}(dy_window,
                    mean_window,
-                   inv_std_window,
-                   static_cast<const ComputeDataType>(kargs.epsilon),
+                   invstd_window,
+                   dgamma_window,
+                   dbeta_window,
                    kargs.n,
                    smem);
     }
