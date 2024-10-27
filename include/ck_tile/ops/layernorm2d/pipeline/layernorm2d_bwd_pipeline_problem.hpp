@@ -15,9 +15,7 @@ template <typename XDataType_,
           typename MeanDataType_,
           typename InvStdDataType_,
           typename BlockShape_,
-          bool kPadN_,
-          bool kSaveMeanInvStd_,
-          bool kTwoPass_>
+          bool kPadN_>
 struct Layernorm2dBwdGammaBetaPipelineProblem
 {
     using XDataType       = remove_cvref_t<XDataType_>;

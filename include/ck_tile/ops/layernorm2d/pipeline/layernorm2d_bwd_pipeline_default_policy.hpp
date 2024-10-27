@@ -4,8 +4,6 @@
 #pragma once
 
 #include "ck_tile/core.hpp"
-#include "ck_tile/ops/welford/block/block_welford_problem.hpp"
-#include "ck_tile/ops/welford/block/block_welford.hpp"
 
 namespace ck_tile {
 
@@ -41,6 +39,20 @@ struct Layernorm2dBwdGammaBetaPipelineDefaultPolicy
                 sequence<0>>{});
     }
 
+    // template <typename Problem>
+    // CK_TILE_DEVICE static constexpr auto MakeGammaBetaBlockTileDistribution()
+    // {
+    //     using S = typename Problem::BlockShape;
+
+    //     return make_static_tile_distribution(
+    //         tile_distribution_encoding<
+    //             sequence<S::Repeat_M, S::WarpPerBlock_M, S::ThreadPerWarp_M>,
+    //             tuple<sequence<S::WarpPerBlock_N, S::ThreadPerWarp_N>>,
+    //             tuple<sequence<0, 1>, sequence<0, 1>>,
+    //             tuple<sequence<1, 0>, sequence<2, 1>>,
+    //             sequence<0>,
+    //             sequence<0>>{});
+    // }
     template <typename Problem>
     CK_TILE_HOST_DEVICE static constexpr index_t GetSmemSize()
     {

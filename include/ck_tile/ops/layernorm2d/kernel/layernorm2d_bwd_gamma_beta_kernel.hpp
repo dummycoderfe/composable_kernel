@@ -104,15 +104,13 @@ struct Layernorm2dBwdGammaBeta
         auto surfix = [&] () {
             std::string n;
             if (kPadN) n += "_pn";
-            if (kSaveMeanInvStd) n += "_mv";
-            if (kTwoPass) n += "_2p";
             return n; }();
 
         #define _SS_  std::string
         #define _TS_  std::to_string
-        return _SS_("layernorm2d_fwd_") + _SS_(t2s<XDataType>::name) + "_" + 
+        return _SS_("layernorm2d_bwd_") + _SS_(t2s<XDataType>::name) + "_" + 
              _TS_(S_::Block_M) + "x" + _TS_(S_::Block_N) + "_" + _TS_(S_::WarpPerBlock_M) + "x" + _TS_(S_::WarpPerBlock_N) + "_" +
-             _TS_(S_::Warp_M) + "x" + _TS_(S_::Warp_N) + "_" + _TS_(S_::Vector_M) + "x" + _TS_(S_::Vector_N) + "_" +
+             _TS_(S_::Warp_M) + "x" + _TS_(S_::Warp_N) + "_" + _TS_(S_::Vector_M) + "x" + _TS_(1) + "_" +
              _SS_(Pipeline::name) + surfix;
         #undef _SS_
         #undef _TS_
